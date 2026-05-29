@@ -1,0 +1,23 @@
+[package]
+name = "agent-locker"
+version = "0.1.0-alpha.2"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Jason Ish <jason@codemonkey.net>"]
+description = "A sandbox for running coding agents with restricted filesystem access."
+repository = "https://github.com/jasonish/agent-locker"
+homepage = "https://github.com/jasonish/agent-locker"
+readme = "README.md"
+license = "MIT"
+keywords = ["sandbox", "landlock", "agent", "security", "isolation"]
+categories = ["command-line-utilities", "os::linux-apis"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+inquire = "0.7"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[package.metadata.docs.rs]
+targets = []
