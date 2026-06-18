@@ -210,7 +210,12 @@ mod tests {
         let tmp = TempDir::new("submodule");
         // A submodule's `.git` file points at `<super>/.git/modules/<name>`,
         // which has no `/worktrees/` segment and is used unchanged.
-        let module_git = tmp.path().join("super").join(".git").join("modules").join("sub");
+        let module_git = tmp
+            .path()
+            .join("super")
+            .join(".git")
+            .join("modules")
+            .join("sub");
         make_git_dir(&module_git);
 
         let work = tmp.path().join("super").join("sub");

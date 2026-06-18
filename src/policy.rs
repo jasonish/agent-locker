@@ -13,6 +13,9 @@ use crate::git;
 pub struct CommandSpec {
     pub program: std::ffi::OsString,
     pub args: Vec<std::ffi::OsString>,
+    /// Environment variables to set on the launched agent (in addition to the
+    /// inherited environment). Used to point claude at a relocated config dir.
+    pub env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
 }
 
 #[derive(Debug, Clone)]
@@ -51,10 +54,20 @@ impl Policy {
                     write_dirs.push(expand_path(path, &cwd));
                 }
             }
-            Mode::Claude => {
+            Mode::Claude if claude_relocates_config() => {
+                // Only the config directory is granted. claude writes its
+                // ~/.claude.json config with an atomic temp-file+rename, which
+                // needs create/remove rights on the file's parent directory.
+                // A file-level rule on ~/.claude.json cannot satisfy that
+                // without opening up all of $HOME, so instead claude is pointed
+                // at ~/.claude via CLAUDE_CONFIG_DIR (set on the command below)
+                // and writes ~/.claude/.claude.json, inside this writable dir.
                 write_dirs.push(expand_path("~/.claude", &cwd));
-                write_dirs.push(expand_path("~/.claude.json", &cwd));
             }
+            // If the user already set CLAUDE_CONFIG_DIR, agent-locker stays out
+            // of the way: no relocation, no grant, no seeding. They are
+            // responsible for granting their own config directory via config.
+            Mode::Claude => {}
             Mode::Codex => write_dirs.push(expand_path("~/.codex", &cwd)),
         }
 
@@ -70,11 +83,21 @@ impl Policy {
         write_dirs.push(PathBuf::from("/dev/null"));
         write_dirs.push(PathBuf::from("/dev/tty"));
 
-        let command = build_command(
+        let mut command = build_command(
             cli.mode,
             &cli.command_and_args,
             config.preset_args(cli.mode),
         );
+
+        if cli.mode == Mode::Claude && claude_relocates_config() {
+            // Relocate ~/.claude.json into the writable ~/.claude directory so
+            // claude's atomic config writes land in granted space (see the
+            // Claude arm above).
+            command.env.push((
+                std::ffi::OsString::from("CLAUDE_CONFIG_DIR"),
+                expand_path("~/.claude", &cwd).into_os_string(),
+            ));
+        }
 
         dedup_paths(&mut write_dirs);
 
@@ -183,6 +206,7 @@ fn build_command(mode: Mode, input: &[std::ffi::OsString], extra: &[String]) -> 
     CommandSpec {
         program: std::ffi::OsString::from(program),
         args,
+        env: Vec::new(),
     }
 }
 
@@ -271,6 +295,16 @@ fn dedup_paths(paths: &mut Vec<PathBuf>) {
 fn normalize_path(cwd: &Path, path: &Path) -> PathBuf {
     let expanded = expand_os_path(path, cwd);
     expanded.canonicalize().unwrap_or(expanded)
+}
+
+/// Whether agent-locker should relocate claude's config into `~/.claude`.
+///
+/// Only when the user has not set `CLAUDE_CONFIG_DIR` themselves. If they have,
+/// claude already reads and writes inside their chosen directory and they are
+/// expected to grant it via config, so agent-locker leaves the environment,
+/// the grant, and the seeding alone.
+fn claude_relocates_config() -> bool {
+    env::var_os("CLAUDE_CONFIG_DIR").is_none()
 }
 
 fn expand_path(path: &str, cwd: &Path) -> PathBuf {

@@ -87,9 +87,26 @@ Each agent additionally allows its own config/cache directories:
 
 | Agent      | Program    | Extra writable paths                                          |
 |------------|------------|---------------------------------------------------------------|
-| `claude`   | `claude`   | `~/.claude`, `~/.claude.json`                                 |
+| `claude`   | `claude`   | `~/.claude` (see below)                                       |
 | `codex`    | `codex`    | `~/.codex`                                                     |
 | `opencode` | `opencode` | `~/.opencode`, `~/.local/share/opencode`, `~/.cache/opencode` |
+
+claude normally stores its main config in `~/.claude.json`, but it writes that
+file atomically — to a temp file in the same directory, then `rename()`d over
+the target — which needs permission to create and remove files in the file's
+**parent** directory. Granting that on `$HOME` would make the whole home
+directory writable, defeating the sandbox, and a file-level Landlock rule on
+`~/.claude.json` cannot authorize the rename. So for the `claude` preset,
+agent-locker sets `CLAUDE_CONFIG_DIR=~/.claude`, which relocates the config to
+`~/.claude/.claude.json` — inside the already-writable config directory, where
+the atomic write succeeds. On first sandboxed run an existing `~/.claude.json`
+is copied in so history, onboarding, and MCP approvals carry over.
+
+Because of this, a sandboxed claude reads and writes `~/.claude/.claude.json`
+while a claude launched normally (outside agent-locker) still uses
+`~/.claude.json`; the two diverge after the initial copy. To keep a single
+config across both, set `CLAUDE_CONFIG_DIR=~/.claude` in your own environment so
+the normal claude uses the same relocated file.
 
 Agents run in their **default mode** — agent-locker does not force flags like
 `--dangerously-skip-permissions`. Use the config file to opt in.

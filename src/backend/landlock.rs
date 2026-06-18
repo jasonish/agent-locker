@@ -114,6 +114,7 @@ pub fn exec(policy: &Policy) -> Result<()> {
 
         let mut cmd = Command::new(&policy.command.program);
         cmd.args(&policy.command.args);
+        cmd.envs(policy.command.env.iter().map(|(k, v)| (k, v)));
         let err = cmd.exec();
         Err(format!("failed to exec command: {err}").into())
     })();
@@ -161,15 +162,30 @@ fn ensure_mode_paths(policy: &Policy) -> Result<()> {
     let home = env::var_os("HOME").map(PathBuf::from);
 
     match policy.mode {
+        // When the user has set CLAUDE_CONFIG_DIR themselves, agent-locker does
+        // not relocate or seed claude's config (see policy::claude_relocates_config);
+        // claude manages it inside the user's chosen directory.
+        Mode::Claude if env::var_os("CLAUDE_CONFIG_DIR").is_some() => {}
         Mode::Claude => {
             let home = home.ok_or("HOME is not set")?;
-            fs::create_dir_all(home.join(".claude"))?;
-            // Claude stores config/state in ~/.claude.json. Seed it if missing
-            // so a file-level Landlock rule can be applied without opening up
-            // the whole home directory.
-            let config = home.join(".claude.json");
+            let config_dir = home.join(".claude");
+            fs::create_dir_all(&config_dir)?;
+            // claude is launched with CLAUDE_CONFIG_DIR=~/.claude (see policy),
+            // so it reads and writes ~/.claude/.claude.json rather than
+            // ~/.claude.json. Its config writes are atomic (temp file +
+            // rename), which need create/remove rights on the file's parent
+            // directory; keeping the file inside the already-writable
+            // ~/.claude grants that without opening up $HOME. Seed it on first
+            // use, migrating an existing ~/.claude.json so history, onboarding,
+            // and MCP approvals carry over into the sandboxed config.
+            let config = config_dir.join(".claude.json");
             if !config.exists() {
-                fs::write(&config, "{}\n")?;
+                let legacy = home.join(".claude.json");
+                if legacy.exists() {
+                    fs::copy(&legacy, &config)?;
+                } else {
+                    fs::write(&config, "{}\n")?;
+                }
             }
         }
         Mode::Opencode => {
