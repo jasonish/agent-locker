@@ -14,7 +14,7 @@ categories = ["command-line-utilities", "os::linux-apis"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-inquire = "0.7"
+inquire = "0.9"
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
